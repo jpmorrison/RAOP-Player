@@ -115,7 +115,7 @@ base64_decode(const char *str, void *data)
     const char *p;
     unsigned char *q;
 
-    q = data;
+    q = (unsigned char *) data;
     for (p = str; *p && (*p == '=' || strchr(base64_chars, *p)); p += 4) {
 	unsigned int val = token_decode(p);
 	unsigned int marker = (val >> 24) & 0xff;

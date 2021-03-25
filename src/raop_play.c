@@ -326,9 +326,9 @@ int main(int argc, char *argv[]) {
 	if (!player.name) return print_usage(argv);
 	if (!fname) return print_usage(argv);
 
-	util_loglevel = debug[level].util;
-	raop_loglevel = debug[level].raop;
-	main_log = debug[level].main;
+	util_loglevel = (log_level) debug[level].util;
+	raop_loglevel = (log_level) debug[level].raop;
+	main_log = (log_level) debug[level].main;
 
 	if (!strcmp(fname, "-")) {
 		infile = fileno(stdin);
@@ -391,7 +391,7 @@ int main(int argc, char *argv[]) {
 	start = get_ntp(NULL);
 	status = PLAYING;
 
-	buf = malloc(MAX_SAMPLES_PER_CHUNK*4);
+	buf = (u8_t *)malloc(MAX_SAMPLES_PER_CHUNK*4);
 
 	do {
 		__u64 playtime, now;
@@ -400,10 +400,18 @@ int main(int argc, char *argv[]) {
 
 		if (now - last > MS2NTP(1000)) {
 			last = now;
-			if (frames && frames > raopcl_latency(raopcl)) {
+			if (frames && frames > raopcl_latency(raopcl)) {				
+// MSVC x64: exceptions with %Lu
+#if 1 
+				LOG_INFO("at %u.%u (%Lu ms after start), played %u ms",
+					SECNTP(now), NTP2MS(now - start),
+					TS2MS(frames - raopcl_latency(raopcl), raopcl_sample_rate(raopcl)));
+#else
 				LOG_INFO("at %u.%u (%Lu ms after start), played %Lu ms",
-						  SECNTP(now), NTP2MS(now - start),
-						  TS2MS(frames - raopcl_latency(raopcl), raopcl_sample_rate(raopcl)));
+					SECNTP(now), NTP2MS(now - start),
+					TS2MS(frames - raopcl_latency(raopcl), raopcl_sample_rate(raopcl)));
+#endif
+						  
 			}
 		}
 

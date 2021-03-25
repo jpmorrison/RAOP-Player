@@ -36,15 +36,17 @@
 extern "C" {
 #endif
 
+	union ctr_blk_s {
+		uint8_t ctr[16];
+		struct {
+			uint8_t nonce[4];
+			uint8_t iv[8];
+			uint8_t ctr[4];
+		} rfc3686;
+	};
+
 	typedef struct {
-		union ctr_blk_s {
-				uint8_t ctr[16];
-				struct {
-					uint8_t nonce[4];
-					uint8_t iv[8];
-					uint8_t ctr[4];
-				} rfc3686;
-		} blk;
+		union ctr_blk_s blk;
 		int mode;
 		aes_context aes_ctx;
 	} aes_ctr_context;

@@ -70,7 +70,7 @@ struct rtspcl_s *rtspcl_create(char *useragent)
 {
 	rtspcl_t *rtspcld;
 
-	rtspcld = malloc(sizeof(rtspcl_t));
+	rtspcld = (rtspcl_t *) malloc(sizeof(rtspcl_t));
 	memset(rtspcld, 0, sizeof(rtspcl_t));
 	rtspcld->useragent = useragent;
 	rtspcld->fd = -1;
@@ -344,7 +344,7 @@ bool rtspcl_set_daap(struct rtspcl_s *p, u32_t timestamp, int count, va_list arg
 
 	if (!p) return false;
 
-	str = q = malloc(1024);
+	str = q = (char *) malloc(1024);
 	if (!str) return false;
 
 	sprintf(rtptime, "rtptime=%u", timestamp);
@@ -432,7 +432,7 @@ bool rtspcl_pair_verify(struct rtspcl_s *p, char *secret_hex)
 	curve25519_dh_CalculatePublicKey(verify_pub, verify_secret);
 
 	// POST the auth_pub and verify_pub concataned
-	buf = malloc(4 + ed25519_public_key_size * 2);
+	buf = (u8_t *) malloc(4 + ed25519_public_key_size * 2);
 	len = 0;
 	memcpy(buf, "\x01\x00\x00\x00", 4); len += 4;
 	memcpy(buf + len, verify_pub, ed25519_public_key_size); len += ed25519_public_key_size;
@@ -446,7 +446,7 @@ bool rtspcl_pair_verify(struct rtspcl_s *p, char *secret_hex)
 
 	// get atv_pub and atv_data then create shared secret
 	memcpy(atv_pub, content, ed25519_public_key_size);
-	atv_data = malloc(atv_len - ed25519_public_key_size);
+	atv_data = (u8_t *)malloc(atv_len - ed25519_public_key_size);
 	memcpy(atv_data, content + ed25519_public_key_size, atv_len - ed25519_public_key_size);
 	curve25519_dh_CreateSharedKey(shared_secret, atv_pub, verify_secret);
 	free(content);
@@ -506,7 +506,7 @@ bool rtspcl_auth_setup(struct rtspcl_s *p)
 
 
 	// POST the auth_pub and verify_pub concataned
-	buf = malloc(1 + ed25519_public_key_size);
+	buf = (u8_t *) malloc(1 + ed25519_public_key_size);
 	memcpy(buf, "\x01", 1);
 	memcpy(buf + 1, pub_key, ed25519_public_key_size);
 
@@ -578,7 +578,7 @@ static bool exec_request(struct rtspcl_s *rtspcld, char *cmd, char *content_type
 	i = poll(&pfds, 1, 0);
 	if (i == -1 || (pfds.revents & POLLERR) || (pfds.revents & POLLHUP)) return false;
 
-	if ((req = malloc(4096+length)) == NULL) return false;
+	if ((req = (char *) malloc(4096+length)) == NULL) return false;
 
 	sprintf(req, "%s %s RTSP/1.0\r\n",cmd, url ? url : rtspcld->url);
 
@@ -682,7 +682,7 @@ static bool exec_request(struct rtspcl_s *rtspcld, char *cmd, char *content_type
 	}
 
 	if (clen) {
-		char *data = malloc(clen);
+		char *data = (char *) malloc(clen);
 		int size = 0;
 
 		while (data && size < clen) {

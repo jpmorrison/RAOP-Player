@@ -26,8 +26,7 @@
 #include <openssl/engine.h>
 #include "sslshim.h"
 
-#include <pthread.h>
-#include <semaphore.h>
+//#include <semaphore.h>
 
 #include <time.h>
 #include <stdlib.h>
@@ -178,8 +177,8 @@ typedef struct raopcl_s {
 	unsigned long ssrc;
 	u32_t latency_frames;
 	int chunk_len;
-	pthread_t time_thread, ctrl_thread;
-	pthread_mutex_t mutex;
+	thread_handle_t time_thread, ctrl_thread;
+	mutex_handle_t mutex;
 	bool time_running, ctrl_running;
 	int sample_rate, sample_size, channels;
 	raop_codec_t codec;
@@ -196,8 +195,8 @@ typedef struct raopcl_s {
 extern log_level	raop_loglevel;
 static log_level 	*loglevel = &raop_loglevel;
 
-static void 	*_rtp_timing_thread(void *args);
-static void 	*_rtp_control_thread(void *args);
+static THREAD_RETVAL _rtp_timing_thread(void *args);
+static THREAD_RETVAL _rtp_control_thread(void *args);
 static void 	_raopcl_terminate_rtp(struct raopcl_s *p);
 static void 	_raopcl_send_sync(struct raopcl_s *p, bool first);
 static bool 	_raopcl_send_audio(struct raopcl_s *p, rtp_audio_pkt_t *packet, int size);
@@ -260,9 +259,9 @@ bool raopcl_is_connected(struct raopcl_s *p)
 
 	if (!p) return false;
 
-	pthread_mutex_lock(&p->mutex);
+	MUTEX_LOCK(&p->mutex);
 	rc = rtspcl_is_connected(p->rtspcl);
-	pthread_mutex_unlock(&p->mutex);
+	MUTEX_UNLOCK(&p->mutex);
 
 	return rc;
 }
@@ -363,12 +362,12 @@ void raopcl_pause(struct raopcl_s *p)
 {
 	if (!p || p->state != RAOP_STREAMING) return;
 
-	pthread_mutex_lock(&p->mutex);
+	MUTEX_LOCK(&p->mutex);
 
 	p->pause_ts = p->head_ts;
 	p->flushing = true;
 
-	pthread_mutex_unlock(&p->mutex);
+	MUTEX_UNLOCK(&p->mutex);
 
 	LOG_INFO("[%p]: set pause %Lu", p, p->pause_ts);
 }
@@ -379,11 +378,11 @@ bool raopcl_start_at(struct raopcl_s *p, u64_t start_time)
 {
 	if (!p) return false;
 
-	pthread_mutex_lock(&p->mutex);
+	MUTEX_LOCK(&p->mutex);
 
 	p->start_ts = NTP2TS(start_time, p->sample_rate);
 
-	pthread_mutex_unlock(&p->mutex);
+	MUTEX_UNLOCK(&p->mutex);
 
 	LOG_INFO("[%p]: set start time %u.%u (ts:%Lu)", p, SEC(start_time), FRAC(start_time), p->start_ts);
 
@@ -396,12 +395,12 @@ void raopcl_stop(struct raopcl_s *p)
 {
 	if (!p) return;
 
-	pthread_mutex_lock(&p->mutex);
+	MUTEX_LOCK(&p->mutex);
 
 	p->flushing = true;
 	p->pause_ts = 0;
 
-	pthread_mutex_unlock(&p->mutex);
+	MUTEX_UNLOCK(&p->mutex);
 }
 
 
@@ -413,7 +412,7 @@ bool raopcl_accept_frames(struct raopcl_s *p)
 
 	if (!p) return 0;
 
-	pthread_mutex_lock(&p->mutex);
+	MUTEX_LOCK(&p->mutex);
 
 	// a flushing is pending
 	if (p->flushing) {
@@ -423,7 +422,7 @@ bool raopcl_accept_frames(struct raopcl_s *p)
 
 		// Not flushed yet, but we have time to wait, so pretend we are full
 		if (p->state != RAOP_FLUSHED && (!p->start_ts || p->start_ts > now_ts + raopcl_latency(p))) {
-			pthread_mutex_unlock(&p->mutex);
+			MUTEX_UNLOCK(&p->mutex);
 			return false;
 		 }
 
@@ -505,7 +504,7 @@ bool raopcl_accept_frames(struct raopcl_s *p)
 
 	if (now_ts >= p->head_ts + p->chunk_len) accept = true;
 
-	pthread_mutex_unlock(&p->mutex);
+	MUTEX_UNLOCK(&p->mutex);
 
 	return accept;
 }
@@ -525,7 +524,7 @@ bool raopcl_send_chunk(struct raopcl_s *p, u8_t *sample, int frames, u64_t *play
 		return false;
 	}
 
-	pthread_mutex_lock(&p->mutex);
+	MUTEX_LOCK(&p->mutex);
 
 	/*
 	 Move to streaming state only when really flushed. In most cases, this is
@@ -547,7 +546,7 @@ bool raopcl_send_chunk(struct raopcl_s *p, u8_t *sample, int frames, u64_t *play
 			pcm_to_alac_raw(sample, frames, &encoded, &size, p->chunk_len);
 			break;
 		case RAOP_PCM: {
-			u8_t *src = sample, *dst = encoded = malloc(frames * 4);
+			u8_t *src = sample, *dst = encoded = (u8_t *) malloc(frames * 4);
 			for (size = 0; size < frames; size++) {
 				*dst++ = *(src + 1); *dst++ = *src++;
 				*dst++ = *(++src + 1); *dst++ = *src++;
@@ -561,8 +560,8 @@ bool raopcl_send_chunk(struct raopcl_s *p, u8_t *sample, int frames, u64_t *play
 			return false;
 	}
 
-	if ((buffer = malloc(sizeof(rtp_header_t) + sizeof(rtp_audio_pkt_t) + size)) == NULL) {
-		pthread_mutex_unlock(&p->mutex);
+	if ((buffer = (u8_t *)malloc(sizeof(rtp_header_t) + sizeof(rtp_audio_pkt_t) + size)) == NULL) {
+		MUTEX_UNLOCK(&p->mutex);
 		if (encoded) free(encoded);
 		LOG_ERROR("[%p]: cannot allocate buffer",p);
 		return false;
@@ -600,7 +599,7 @@ bool raopcl_send_chunk(struct raopcl_s *p, u8_t *sample, int frames, u64_t *play
 
 	_raopcl_send_audio(p, packet, sizeof(rtp_audio_pkt_t) + size);
 
-	pthread_mutex_unlock(&p->mutex);
+	MUTEX_UNLOCK(&p->mutex);
 
 	if (NTP2MS(*playtime) % 10000 < 8) {
 		LOG_INFO("[%p]: check n:%u p:%u ts:%Lu sn:%u\n               "
@@ -657,7 +656,11 @@ bool _raopcl_send_audio(struct raopcl_s *p, rtp_audio_pkt_t *packet, int size)
 	else p->sane.audio.select = 0;
 
 	if (FD_ISSET(p->rtp_ports.audio.fd, &wfds)) {
+#if WINCLI
+		n = sendto(p->rtp_ports.audio.fd, (const char*)packet, +size, 0, (const sockaddr*)&addr, sizeof(addr));
+#else
 		n = sendto(p->rtp_ports.audio.fd, (void*) packet, + size, 0, (void*) &addr, sizeof(addr));
+#endif
 		if (n != size) {
 			LOG_DEBUG("[%p]: error sending audio packet", p);
 			ret = false;
@@ -692,7 +695,7 @@ struct raopcl_s *raopcl_create(struct in_addr local, u16_t port_base, u16_t port
 	}
 
 	// seed random generator
-	raopcld = malloc(sizeof(raopcl_data_t));
+	raopcld = (raopcl_data_t *)malloc(sizeof(raopcl_data_t));
 	RAND_seed(raopcld, sizeof(raopcl_data_t));
 	memset(raopcld, 0, sizeof(raopcl_data_t));
 
@@ -734,7 +737,7 @@ struct raopcl_s *raopcl_create(struct in_addr local, u16_t port_base, u16_t port
 
 	LOG_INFO("[%p]: using %s coding", raopcld, raopcld->alac_codec ? "ALAC" : "PCM");
 
-	pthread_mutex_init(&raopcld->mutex, NULL);
+	MUTEX_CREATE(raopcld->mutex);
 
 	RAND_bytes(raopcld->iv, sizeof(raopcld->iv));
 	VALGRIND_MAKE_MEM_DEFINED(raopcld->iv, sizeof(raopcld->iv));
@@ -754,10 +757,10 @@ static void _raopcl_terminate_rtp(struct raopcl_s *p)
 {
 	// Terminate RTP threads and close sockets
 	p->ctrl_running = false;
-	pthread_join(p->ctrl_thread, NULL);
+	THREAD_JOIN(p->ctrl_thread);
 
 	p->time_running = false;
-	pthread_join(p->time_thread, NULL);
+	THREAD_JOIN(p->time_thread);
 
 	if (p->rtp_ports.ctrl.fd != -1) closesocket(p->rtp_ports.ctrl.fd);
 	if (p->rtp_ports.time.fd != -1) closesocket(p->rtp_ports.time.fd);
@@ -891,7 +894,7 @@ static bool raopcl_set_sdp(struct raopcl_s *p, char *sdp)
 			remove_char_from_string(key, '=');
 			base64_encode(p->iv, 16, &iv);
 			remove_char_from_string(iv, '=');
-			buf = malloc(strlen(key) + strlen(iv) + 128);
+			buf = (char *)malloc(strlen(key) + strlen(iv) + 128);
 			sprintf(buf, "a=rsaaeskey:%s\r\n"
 						"a=aesiv:%s\r\n",
 						key, iv);
@@ -1046,7 +1049,7 @@ bool raopcl_connect(struct raopcl_s *p, struct in_addr host, u16_t destport, boo
 	if (p->rtp_ports.time.fd < 0) goto erexit;
 
 	p->time_running = true;
-	pthread_create(&p->time_thread, NULL, _rtp_timing_thread, (void*) p);
+	THREAD_CREATE(p->time_thread, _rtp_timing_thread, (void*) p);
 
 	// RTSP ANNOUNCE
 	if (p->auth && p->crypto) {
@@ -1089,12 +1092,12 @@ bool raopcl_connect(struct raopcl_s *p, struct in_addr host, u16_t destport, boo
 	free_kd(kd);
 
 	p->ctrl_running = true;
-	pthread_create(&p->ctrl_thread, NULL, _rtp_control_thread, (void*) p);
+	THREAD_CREATE(p->ctrl_thread, _rtp_control_thread, (void*) p);
 
-	pthread_mutex_lock(&p->mutex);
+	MUTEX_LOCK(p->mutex);
 	// as connect might take time, state might already have been set
 	if (p->state == RAOP_DOWN) p->state = RAOP_FLUSHED;
-	pthread_mutex_unlock(&p->mutex);
+	MUTEX_UNLOCK(p->mutex);
 
 	if (set_volume) raopcl_set_volume(p, p->volume);
 
@@ -1119,21 +1122,21 @@ bool raopcl_flush(struct raopcl_s *p)
 
 	if (!p || p->state != RAOP_STREAMING) return false;
 
-	pthread_mutex_lock(&p->mutex);
+	MUTEX_LOCK(&p->mutex);
 	p->state = RAOP_FLUSHING;
 	p->retransmit = 0;
 	seq_number = p->seq_number;
 	timestamp = p->head_ts;
-	pthread_mutex_unlock(&p->mutex);
+	MUTEX_UNLOCK(&p->mutex);
 
 	LOG_INFO("[%p]: flushing up to s:%u ts:%Lu", p, seq_number, timestamp);
 
 	// everything BELOW these values should be FLUSHED ==> the +1 is mandatory
 	rc = rtspcl_flush(p->rtspcl, seq_number + 1, timestamp + 1);
 
-	pthread_mutex_lock(&p->mutex);
+	MUTEX_LOCK(&p->mutex);
 	p->state = RAOP_FLUSHED;
-	pthread_mutex_unlock(&p->mutex);
+	MUTEX_UNLOCK(&p->mutex);
 
 	return rc;
 }
@@ -1146,9 +1149,9 @@ bool _raopcl_disconnect(struct raopcl_s *p, bool force)
 
 	if (!force && (!p || p->state == RAOP_DOWN)) return true;
 
-	pthread_mutex_lock(&p->mutex);
+	MUTEX_LOCK(&p->mutex);
 	p->state = RAOP_DOWN;
-	pthread_mutex_unlock(&p->mutex);
+	MUTEX_UNLOCK(&p->mutex);
 
 	_raopcl_terminate_rtp(p);
 
@@ -1174,9 +1177,9 @@ bool raopcl_repair(struct raopcl_s *p, bool set_volume)
 
 	if (!p) return false;
 
-	pthread_mutex_lock(&p->mutex);
+	MUTEX_LOCK(&p->mutex);
 	p->state = RAOP_DOWN;
-	pthread_mutex_unlock(&p->mutex);
+	MUTEX_UNLOCK(&p->mutex);
 
 	_raopcl_terminate_rtp(p);
 
@@ -1202,7 +1205,7 @@ bool raopcl_destroy(struct raopcl_s *p)
 
 	rc = raopcl_disconnect(p);
 	rc &= rtspcl_destroy(p->rtspcl);
-	pthread_mutex_destroy(&p->mutex);
+	MUTEX_DESTROY(&p->mutex);
 
 	for (i = 0; i < MAX_BACKLOG; i++) {
 		if (p->backlog[i].buffer) {
@@ -1222,14 +1225,14 @@ bool raopcl_sanitize(struct raopcl_s *p)
 {
 	if (!p) return false;
 
-	pthread_mutex_trylock(&p->mutex);
+	MUTEX_TRYLOCK(&p->mutex);
 
 	p->state = RAOP_DOWN;
 	p->head_ts = p->pause_ts = p->start_ts = p->first_ts = 0;
 	p->first_pkt = false;
 	p->flushing = true;
 
-	pthread_mutex_unlock(&p->mutex);
+	MUTEX_UNLOCK(&p->mutex);
 
 	return true;
 }
@@ -1257,7 +1260,7 @@ void _raopcl_send_sync(struct raopcl_s *raopcld, bool first)
 	rsp.hdr.seq[1] = 7;
 
 	// first sync is called with mutex locked, so don't block
-	if (!first) pthread_mutex_lock(&raopcld->mutex);
+	if (!first) MUTEX_LOCK(&raopcld->mutex);
 
 	timestamp = raopcld->head_ts;
 	now = TS2NTP(timestamp, raopcld->sample_rate);
@@ -1270,9 +1273,12 @@ void _raopcl_send_sync(struct raopcl_s *raopcld, bool first)
 	rsp.rtp_timestamp = htonl(timestamp);
 	rsp.rtp_timestamp_latency = htonl(timestamp - raopcld->latency_frames);
 
+#if WINCLI
+	n = sendto(raopcld->rtp_ports.ctrl.fd, (const char*)&rsp, sizeof(rsp), 0, (const sockaddr *)&addr, sizeof(addr));
+#else
 	n = sendto(raopcld->rtp_ports.ctrl.fd, (void*) &rsp, sizeof(rsp), 0, (void*) &addr, sizeof(addr));
-
-	if (!first) pthread_mutex_unlock(&raopcld->mutex);
+#endif
+	if (!first) MUTEX_UNLOCK(&raopcld->mutex);
 
 	LOG_DEBUG("[%p]: sync ntp:%u.%u (ts:%Lu)", raopcld, SEC(now), FRAC(now), raopcld->head_ts);
 
@@ -1282,7 +1288,7 @@ void _raopcl_send_sync(struct raopcl_s *raopcld, bool first)
 
 
 /*----------------------------------------------------------------------------*/
-void *_rtp_timing_thread(void *args)
+THREAD_RETVAL _rtp_timing_thread(void *args)
 {
 	raopcl_data_t *raopcld = (raopcl_data_t*) args;
 	struct sockaddr_in addr;
@@ -1310,12 +1316,20 @@ void *_rtp_timing_thread(void *args)
 		if (!FD_ISSET(raopcld->rtp_ports.time.fd, &rfds)) continue;
 
 		if (addr.sin_port) {
+#if WIN
+			n = recv(raopcld->rtp_ports.time.fd, (char*)&req, sizeof(req), 0);
+#else
 			n = recv(raopcld->rtp_ports.time.fd, (void*) &req, sizeof(req), 0);
+#endif
 		}
 		else {
 			struct sockaddr_in client;
 			int len = sizeof(client);
+#if WIN
+			n = recvfrom(raopcld->rtp_ports.time.fd, (char*)&req, sizeof(req), 0, (struct sockaddr *)&client, (socklen_t *)&len);
+#else
 			n = recvfrom(raopcld->rtp_ports.time.fd, (void*) &req, sizeof(req), 0, (struct sockaddr *)&client, (socklen_t *)&len);
+#endif
 			addr.sin_port = client.sin_port;
 			LOG_DEBUG("[%p]: NTP remote port: %d", raopcld, ntohs(addr.sin_port));
 		}
@@ -1335,8 +1349,11 @@ void *_rtp_timing_thread(void *args)
 			rsp.recv_time.seconds = htonl(rsp.recv_time.seconds);
 			rsp.recv_time.fraction = htonl(rsp.recv_time.fraction);
 			rsp.send_time = rsp.recv_time; // might need to add a few fraction ?
-
+#if WINCLI
+			n = sendto(raopcld->rtp_ports.time.fd, (const char*)&rsp, sizeof(rsp), 0, (const sockaddr*)&addr, sizeof(addr));
+#else
 			n = sendto(raopcld->rtp_ports.time.fd, (void*) &rsp, sizeof(rsp), 0, (void*) &addr, sizeof(addr));
+#endif
 
 			if (n != (int) sizeof(rsp)) {
 			   LOG_ERROR("[%p]: error responding to sync", raopcld);
@@ -1363,7 +1380,7 @@ void *_rtp_timing_thread(void *args)
 
 
 /*----------------------------------------------------------------------------*/
-void *_rtp_control_thread(void *args)
+THREAD_RETVAL _rtp_control_thread(void *args)
 {
 	raopcl_data_t *raopcld = (raopcl_data_t*) args;
 
@@ -1386,8 +1403,11 @@ void *_rtp_control_thread(void *args)
 		if (FD_ISSET(raopcld->rtp_ports.ctrl.fd, &rfds)) {
 			rtp_lost_pkt_t lost;
 			int i, n, missed;
-
+#if WIN
+			n = recv(raopcld->rtp_ports.ctrl.fd, (char*)&lost, sizeof(lost), 0);
+#else
 			n = recv(raopcld->rtp_ports.ctrl.fd, (void*) &lost, sizeof(lost), 0);
+#endif
 
 			if (n < 0) continue;
 
@@ -1403,7 +1423,7 @@ void *_rtp_control_thread(void *args)
 			}
 			else raopcld->sane.ctrl = 0;
 
-			pthread_mutex_lock(&raopcld->mutex);
+			MUTEX_LOCK(&raopcld->mutex);
 
 			for (missed = 0, i = 0; i < lost.n; i++) {
 				u16_t index = (lost.seq_number + i) % MAX_BACKLOG;
@@ -1428,11 +1448,15 @@ void *_rtp_control_thread(void *args)
 					addr.sin_port = htons(raopcld->rtp_ports.ctrl.rport);
 
 					raopcld->retransmit++;
-
+#if WINCLI
+					n = sendto(raopcld->rtp_ports.ctrl.fd, (const char*)hdr,
+						sizeof(rtp_header_t) + raopcld->backlog[index].size,
+						0, (const sockaddr*)&addr, sizeof(addr));
+#else
 					n = sendto(raopcld->rtp_ports.ctrl.fd, (void*) hdr,
 							   sizeof(rtp_header_t) + raopcld->backlog[index].size,
 							   0, (void*) &addr, sizeof(addr));
-
+#endif
 					if (n == -1) {
 						LOG_WARN("[%p]: error resending lost packet sn:%u (n:%d)",
 								   raopcld, lost.seq_number + i, n);
@@ -1443,7 +1467,7 @@ void *_rtp_control_thread(void *args)
 				}
 			}
 
-			pthread_mutex_unlock(&raopcld->mutex);
+			MUTEX_UNLOCK(&raopcld->mutex);
 
 			LOG_DEBUG("[%p]: retransmit packet sn:%d nb:%d (mis:%d)",
 					  raopcld, lost.seq_number, lost.n, missed);

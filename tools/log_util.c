@@ -28,17 +28,34 @@
 #include "platform.h"
 #include "log_util.h"
 
+#if WINDEBUG
+#include <crtdbg.h>  // For _CrtSetReportMode
+
+void log_utilInvalidParameterHandler(const wchar_t* expression,
+	const wchar_t* function,
+	const wchar_t* file,
+	unsigned int line,
+	uintptr_t pReserved)
+{
+	//     wprintf(L"Invalid parameter detected in function %s."
+	//             L" File: %s Line: %d\n", function, file, line);
+	//     wprintf(L"Expression: %s\n", expression);
+	//     abort();
+}
+
+
+#endif
 
 extern log_level 	util_loglevel;
 //static log_level 	*loglevel = &util_loglevel;
 
 // logging functions
 const char *logtime(void) {
-	static char buf[100];
+	static char buf[1000];
 #if WIN
 	SYSTEMTIME lt;
 	GetLocalTime(&lt);
-	sprintf(buf, "[%02d:%02d:%02d.%03d]", lt.wHour, lt.wMinute, lt.wSecond, lt.wMilliseconds);
+	sprintf_s(buf, sizeof(buf), "[%02d:%02d:%02d.%03d]", lt.wHour, lt.wMinute, lt.wSecond, lt.wMilliseconds);
 #else
 	struct timeval tv;
 	gettimeofday(&tv, NULL);
@@ -52,10 +69,23 @@ const char *logtime(void) {
 void logprint(const char *fmt, ...) {
 	va_list args;
 
+#if WINDEBUG
+	_invalid_parameter_handler oldHandler, newHandler;
+	newHandler = log_utilInvalidParameterHandler;
+	oldHandler = _set_invalid_parameter_handler(newHandler);
+
+	// Disable the message box for assertions.
+	_CrtSetReportMode(_CRT_ASSERT, 0);
+
+#endif
 	va_start(args, fmt);
 	vfprintf(stderr, fmt, args);
 	va_end(args);
 	fflush(stderr);
+#if WINDEBUG
+	_CrtSetReportMode(_CRT_ASSERT, 1);
+	_set_invalid_parameter_handler(oldHandler);
+#endif
 }
 
 /*---------------------------------------------------------------------------*/

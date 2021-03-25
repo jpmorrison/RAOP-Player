@@ -26,6 +26,10 @@ struct alac_codec_s;
 extern "C" {
 #endif
 
+#ifndef uint8_t
+#include <stdint.h>
+#endif
+
 struct alac_codec_s *alac_create_decoder(int magic_cookie_size, uint8_t *magic_cookie,
 								uint8_t *sample_size, unsigned *sample_rate,
 								uint8_t *channels, unsigned int *block_size);

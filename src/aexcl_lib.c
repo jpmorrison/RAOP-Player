@@ -42,7 +42,7 @@ char *_aprintf(const char *fmt, ...)
 	va_end(cp);
 #endif
 
-	ret = malloc(len + 1);
+	ret = (char *) malloc(len + 1);
 
 	if (ret) vsprintf(ret, fmt, args);
 
@@ -108,7 +108,11 @@ int open_tcp_socket(struct in_addr host, unsigned short *port)
 		return -1;
 	}
 
-	setsockopt(sd, SOL_SOCKET, SO_KEEPALIVE, (void*) &optval, sizeof(optval));
+#if WINCLI
+	setsockopt(sd, SOL_SOCKET, SO_KEEPALIVE, (const char*) &optval, sizeof(optval));
+#else
+	setsockopt(sd, SOL_SOCKET, SO_KEEPALIVE, (void*)&optval, sizeof(optval));
+#endif
 #if 0 //only Linux supports this
 	optval = 120;
 	optval = setsockopt(sd, SOL_TCP, TCP_KEEPIDLE, &optval, sizeof(optval));
@@ -272,7 +276,7 @@ void free_kd(key_data_t *kd)
 		i++;
 	}
 
-	kd[0].key = NULL;
+	if(kd) kd[0].key = NULL;
 }
 
 /*
@@ -303,7 +307,7 @@ int remove_char_from_string(char *str, char rc)
 int hex2bytes(char *hex, u8_t **bytes) {
 	size_t i, len = strlen(hex) / 2;
 
-	if (!*bytes && (*bytes = malloc(len)) == NULL) return 0;
+	if (!*bytes && (*bytes = (u8_t *) malloc(len)) == NULL) return 0;
 
 	for (i = 0; i < len; i++) {
 		sscanf(hex + i*2, "%2hhx", *bytes + i);

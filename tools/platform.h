@@ -60,7 +60,6 @@
 #include <sys/poll.h>
 #include <poll.h>
 #include <dlfcn.h>
-#include <pthread.h>
 #include <errno.h>
 #include <memcheck.h>
 
@@ -110,10 +109,11 @@ int gettimeofday(struct timeval *tv, struct timezone *tz);
 #define ERROR_WOULDBLOCK WSAEWOULDBLOCK
 #define open _open
 #define read _read
-#define snprintf _snprintf
+//#define snprintf _snprintf
 #define fresize(f, s) chsize(fileno(f), s)
 #define strcasecmp stricmp
-#define _random(x) random(x)
+//#define _random(x) random(x)
+#define _random(x) rand()
 #define VALGRIND_MAKE_MEM_DEFINED(x,y)
 
 #define in_addr_t u32_t
@@ -122,7 +122,11 @@ int gettimeofday(struct timeval *tv, struct timezone *tz);
 
 #define RTLD_NOW 0
 
+//#define HAVE_STRUCT_TIMESPEC
 #endif
+
+
+#include "threads.h"
 
 typedef u8_t  __u8;
 typedef u16_t __u16;
