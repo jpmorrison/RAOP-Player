@@ -402,7 +402,7 @@ int main(int argc, char *argv[]) {
 			last = now;
 			if (frames && frames > raopcl_latency(raopcl)) {				
 // MSVC x64: exceptions with %Lu
-#if 1 
+#if defined(_MSC_VER) && defined(_M_X64)
 				LOG_INFO("at %u.%u (%u ms after start), played %u ms",
 					SECNTP(now), NTP2MS(now - start),
 					TS2MS(frames - raopcl_latency(raopcl), raopcl_sample_rate(raopcl)));
@@ -421,6 +421,8 @@ int main(int argc, char *argv[]) {
 			raopcl_send_chunk(raopcl, buf, n / 4, &playtime);
 			frames += n / 4;
 		}
+		else 
+			sleepms(22);	// sleep for one sample = big CPU reduction 
 
 		if (interactive && kbhit()) {
 			char c = _getch();
