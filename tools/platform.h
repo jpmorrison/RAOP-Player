@@ -109,6 +109,11 @@ int gettimeofday(struct timeval *tv, struct timezone *tz);
 #define ERROR_WOULDBLOCK WSAEWOULDBLOCK
 #define open _open
 #define read _read
+#define fileno _fileno
+#define strdup _strdup
+#define setmode _setmode
+#define kbhit _kbhit
+#define stricmp _stricmp
 //#define snprintf _snprintf
 #define fresize(f, s) chsize(fileno(f), s)
 #define strcasecmp stricmp

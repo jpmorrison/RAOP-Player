@@ -29,7 +29,7 @@
 #include "log_util.h"
 
 // for printf format errors that cause exceptions in MSVC
-#define WINDEBUG 1  
+#define WINDEBUG 0  
 
 #if WINDEBUG
 #include <crtdbg.h>  // For _CrtSetReportMode
