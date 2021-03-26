@@ -27,6 +27,17 @@ Either get the NTP of the master machine from any application and then fork mult
 the same audio file, or use the -ntp option to get NTP to be written to a file and re-use that file when calling the instances of
 raop_play
 
+## Building with VisualStudio
+Install OpenSSL from https://slproweb.com/products/Win32OpenSSL.html
+The project files expect OpenSSL in C:\Program Files\OpenSSL-Win64
+
+Open the RAOP-Player.sln solution and build. The Default is for Release/x64. 
+The project links with libcrypto_static.lib so no openssl DLLs are needed.
+
+Building for x86 hasn't been tested. It will need 32bit OpenSSL installed.
+The ALAC library assumes big endian so make sure this is defined correctly
+
+
 ## Building using CMake
 
 ```sh
