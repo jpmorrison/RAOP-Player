@@ -1316,7 +1316,7 @@ THREAD_RETVAL _rtp_timing_thread(void *args)
 		if (!FD_ISSET(raopcld->rtp_ports.time.fd, &rfds)) continue;
 
 		if (addr.sin_port) {
-#if WIN
+#if WINCLI
 			n = recv(raopcld->rtp_ports.time.fd, (char*)&req, sizeof(req), 0);
 #else
 			n = recv(raopcld->rtp_ports.time.fd, (void*) &req, sizeof(req), 0);
@@ -1325,7 +1325,7 @@ THREAD_RETVAL _rtp_timing_thread(void *args)
 		else {
 			struct sockaddr_in client;
 			int len = sizeof(client);
-#if WIN
+#if WINCLI
 			n = recvfrom(raopcld->rtp_ports.time.fd, (char*)&req, sizeof(req), 0, (struct sockaddr *)&client, (socklen_t *)&len);
 #else
 			n = recvfrom(raopcld->rtp_ports.time.fd, (void*) &req, sizeof(req), 0, (struct sockaddr *)&client, (socklen_t *)&len);
@@ -1403,7 +1403,7 @@ THREAD_RETVAL _rtp_control_thread(void *args)
 		if (FD_ISSET(raopcld->rtp_ports.ctrl.fd, &rfds)) {
 			rtp_lost_pkt_t lost;
 			int i, n, missed;
-#if WIN
+#if WINCLI
 			n = recv(raopcld->rtp_ports.ctrl.fd, (char*)&lost, sizeof(lost), 0);
 #else
 			n = recv(raopcld->rtp_ports.ctrl.fd, (void*) &lost, sizeof(lost), 0);
