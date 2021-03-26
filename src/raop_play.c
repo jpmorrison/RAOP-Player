@@ -403,7 +403,7 @@ int main(int argc, char *argv[]) {
 			if (frames && frames > raopcl_latency(raopcl)) {				
 // MSVC x64: exceptions with %Lu
 #if 1 
-				LOG_INFO("at %u.%u (%Lu ms after start), played %u ms",
+				LOG_INFO("at %u.%u (%u ms after start), played %u ms",
 					SECNTP(now), NTP2MS(now - start),
 					TS2MS(frames - raopcl_latency(raopcl), raopcl_sample_rate(raopcl)));
 #else
